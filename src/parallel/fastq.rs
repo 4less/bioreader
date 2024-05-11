@@ -48,7 +48,7 @@ where
                     .load_batch_par(&mut reader_clone)
                     .expect("Batch is invalid")
                 {
-                    while let Some(record) = fastq_reader.next_position() {
+                    while let Some(record) = fastq_reader.next() {
                         count += 1;
                         if !record.valid() {
                             panic!("Invalid record {}", record)
@@ -113,7 +113,7 @@ where
             let tx: mpsc::Sender<usize> = tx.clone();
             
             threads.push(scope.spawn(move || {
-                while let Some((record1, record2)) = fastq_reader.next_position() {
+                while let Some((record1, record2)) = fastq_reader.next() {
                     count += 1;
                     if !record1.valid() {
                         panic!("Invalid record {}", record1)

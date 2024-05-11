@@ -74,7 +74,7 @@ impl<T: Read> PairedFastqReader<T> {
         Some(())
     }
 
-    pub fn next_position(&mut self) -> Option<(RefRecord, RefRecord)> {
+    pub fn next(&mut self) -> Option<(RefRecord, RefRecord)> {
         self.buf1_pos.pos.1 += (self.buf1_pos.pos.1 > 0) as usize;
         self.buf2_pos.pos.1 += (self.buf2_pos.pos.1 > 0) as usize;
 
@@ -88,7 +88,6 @@ impl<T: Read> PairedFastqReader<T> {
 
             self.buf1_pos.reset(0);
             self.buf2_pos.reset(0);
-            // println!("Fill {} {}", self.buffer1_fill, self.buffer2_fill);
             if load.is_none() { return None; }
         }
 
@@ -107,9 +106,6 @@ impl<T: Read> PairedFastqReader<T> {
 
         PairedFastqReader::<T>::find_position(&mut self.buffer1[..self.buffer1_fill], &mut self.buf1_pos);
         PairedFastqReader::<T>::find_position(&mut self.buffer2[..self.buffer2_fill], &mut self.buf2_pos);
-
-        // println!("Record length1: {}", (self.buf1_pos.pos.1 - self.buf1_pos.pos.0));
-        // println!("Record length2: {}", (self.buf2_pos.pos.1 - self.buf2_pos.pos.0));
 
         let r1 = RefRecord {
             buffer: &self.buffer1,
@@ -192,7 +188,7 @@ impl<'a> FastqReader {
         }
     }
 
-    pub fn next_position(&mut self) -> Option<RefRecord> {
+    pub fn next(&mut self) -> Option<RefRecord> {
         self.buf_pos.pos.1 += (self.buf_pos.pos.1 > 0) as usize;
 
         if self.buf_pos.pos.1 >= self.buffer_size {
@@ -221,40 +217,6 @@ impl<'a> FastqReader {
             buffer: &self.buffer,
             buf_pos: &self.buf_pos,
         })
-    }
-
-
-    // / Searches the next FASTQ record and returns a [RefRecord](struct.RefRecord.html) that
-    // / borrows its data from the underlying buffer of this reader.
-    // /
-    // / # Example:
-    // /
-    // / ```no_run
-    // / use seq_io::fastq::{Reader, Record};
-    // /
-    // / let mut reader = Reader::from_path("seqs.fastq").unwrap();
-    // /
-    // / while let Some(record) = reader.next() {
-    // /     let record = record.unwrap();
-    // /     println!("{}", record.id().unwrap());
-    // / }
-    // / ```
-    #[allow(clippy::should_implement_trait)]
-    #[inline]
-    pub fn next(&mut self) -> Option<Result<RefRecord, Error>> {
-        if self.finished {
-            return None;
-        }
-
-        match self.next_position() {
-            Some(_rec) => {},
-            None => { return None }
-        };
-
-        Some(Ok(RefRecord {
-            buffer: &self.buffer,
-            buf_pos: &self.buf_pos,
-        }))
     }
 }
 

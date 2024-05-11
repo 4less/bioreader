@@ -18,7 +18,7 @@ fn read_fastq<T>(file: T, buffer_size: usize) -> Result<usize, std::io::Error> w
     let mut count = 0;
     let mut total_length = 0;
     while let Some(_ok) = fastq_reader.load_batch(&mut byte_reader)? {
-        while let Some(record) = fastq_reader.next_position() {
+        while let Some(record) = fastq_reader.next() {
             // println!("{}", record);
             count += 1;
             total_length += record.seq().len();
