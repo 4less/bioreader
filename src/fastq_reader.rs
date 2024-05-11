@@ -11,7 +11,7 @@ const LINE_ENDING: &'static str = "\r\n";
 const LINE_ENDING: &'static str = "\n";
 
 
-pub struct PairedFastqReader<T> where T: Read{
+pub struct PairedFastqReader<'a, T> where T: Read {
     reader: Arc<Mutex<PairedByteReader<T>>>,
     pub buffer1: Vec<u8>,
     pub buffer1_fill: usize,
@@ -19,9 +19,10 @@ pub struct PairedFastqReader<T> where T: Read{
     pub buffer2_fill: usize,
     buf1_pos: BufferPosition,
     buf2_pos: BufferPosition,
+    pub rec: Option<(RefRecord<'a>, RefRecord<'a>)>,
 }
 
-impl<T: Read> PairedFastqReader<T> {
+impl<'a, T: Read> PairedFastqReader<'a, T> {
     pub fn new(reader: Arc<Mutex<PairedByteReader<T>>>, capacity: usize) -> Self {
         PairedFastqReader {
             reader: reader,
@@ -31,6 +32,7 @@ impl<T: Read> PairedFastqReader<T> {
             buffer2_fill: 0,
             buf1_pos: BufferPosition::default(),
             buf2_pos: BufferPosition::default(),
+            rec: None,
         }
     }
 
@@ -43,7 +45,6 @@ impl<T: Read> PairedFastqReader<T> {
             Some((pos1, pos2)) => {
                 self.buffer1_fill = pos1;
                 self.buffer2_fill = pos2;
-                // println!("{} {}", self.buffer1_fill, self.buffer2_fill);
 
                 Ok(Some(()))
             },
@@ -123,7 +124,83 @@ impl<T: Read> PairedFastqReader<T> {
         Some((r1, r2))
     }
 
+    pub fn load_next(&mut self) -> Option<()> {
+        self.buf1_pos.pos.1 += (self.buf1_pos.pos.1 > 0) as usize;
+        self.buf2_pos.pos.1 += (self.buf2_pos.pos.1 > 0) as usize;
 
+        let at_end1 = self.buf1_pos.pos.1 >= self.buffer1_fill;
+        let at_end2 = self.buf2_pos.pos.1 >= self.buffer2_fill;
+
+        assert_eq!(at_end1, at_end2);
+        
+        if at_end2 && at_end2 {
+            let load = self.load_batch_par().expect("Valid filestream");
+
+            self.buf1_pos.reset(0);
+            self.buf2_pos.reset(0);
+            // println!("Fill {} {}", self.buffer1_fill, self.buffer2_fill);
+            if load.is_none() { return None; }
+        }
+
+
+        if self.buffer1[self.buf1_pos.pos.0] != b'@' {
+            
+            println!("{} {:?}", self.buffer1_fill, self.buf1_pos);
+            println!(">>>>>>{}<<<<<<", std::str::from_utf8(&self.buffer1[0..100]).unwrap());
+            println!("{}", self.buffer1.len());
+        }
+
+        assert!(self.buffer1[self.buf1_pos.pos.0] == b'@');
+        assert!(self.buffer2[self.buf2_pos.pos.0] == b'@');
+        assert!(self.buf1_pos.pos.0 == 0  || self.buffer1[self.buf1_pos.pos.0-1] == b'\n');
+        assert!(self.buf2_pos.pos.0 == 0  || self.buffer2[self.buf2_pos.pos.0-1] == b'\n');
+
+        PairedFastqReader::<T>::find_position(&mut self.buffer1[..self.buffer1_fill], &mut self.buf1_pos);
+        PairedFastqReader::<T>::find_position(&mut self.buffer2[..self.buffer2_fill], &mut self.buf2_pos);
+
+        // println!("Record length1: {}", (self.buf1_pos.pos.1 - self.buf1_pos.pos.0));
+        // println!("Record length2: {}", (self.buf2_pos.pos.1 - self.buf2_pos.pos.0));
+
+
+        // self.rec = Some((RefRecord {
+        //     buffer: &self.buffer1,
+        //     buf_pos: &self.buf1_pos,
+        // }, RefRecord {
+        //     buffer: &self.buffer1,
+        //     buf_pos: &self.buf1_pos,
+        // }));
+        Some(())
+    }
+
+
+}
+
+
+pub struct PairedFastqReaderIter<'a, T> where T: Read {
+    paired_fastq_reader: &'a mut PairedFastqReader<'a, T>,
+    i: usize,
+}
+
+impl<'a, T> Iterator for PairedFastqReaderIter<'a, T> where T: Read {
+    type Item = (RefRecord<'a>, RefRecord<'a>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.paired_fastq_reader.load_next();
+        self.paired_fastq_reader.rec.take()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut PairedFastqReader<'a, T> where T: Read {
+    type Item = (RefRecord<'a>, RefRecord<'a>);
+
+    type IntoIter = PairedFastqReaderIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        PairedFastqReaderIter {
+            paired_fastq_reader: self,
+            i: 0,
+        }
+    }
 }
 
 
