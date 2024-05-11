@@ -1,9 +1,9 @@
 use memchr::memchr;
-use std::{cell::Ref, io::{stdin, Error, Read}, string::ParseError, sync::{Arc, Mutex}};
+use std::{io::{Error, Read}, sync::{Arc, Mutex}};
 
-use memmap2::Mmap;
+// use memmap2::Mmap;
 
-use crate::{byte_reader::{ByteReader, FillBuffer, FillBufferPair, PairedByteReader}, sequence::fastq_record::{BufferPosition, RefRecord, SearchPosition}};
+use crate::{byte_reader::{FillBufferPair, PairedByteReader}, sequence::fastq_record::{BufferPosition, RefRecord}};
 
 #[cfg(windows)]
 const LINE_ENDING: &'static str = "\r\n";
@@ -57,7 +57,6 @@ impl<T: Read> PairedFastqReader<T> {
         }
         assert!(buffer[buffer_pos.pos.1] == b'@');
 
-        let p0 = buffer_pos.pos.1;
 
         let pos1: usize = memchr(b'\n', &buffer[buffer_pos.pos.1..]).expect("1: Couldn't find newline") + buffer_pos.pos.1+1;
         let pos2 = memchr(b'\n', &buffer[pos1..]).expect("2: Couldn't find newline ") + pos1+1;
@@ -133,7 +132,6 @@ pub struct FastqReader {
     pub buffer: Vec<u8>,
     pub buffer_size: usize,
     buf_pos: BufferPosition,
-    search_pos: SearchPosition,
     finished: bool,
 }
 
@@ -150,7 +148,6 @@ impl<'a> FastqReader {
         FastqReader {
             buffer: vec![0; capacity],
             buffer_size: 0,
-            search_pos: SearchPosition::Id,
             buf_pos: BufferPosition::default(),
             finished: false,
         }

@@ -1,21 +1,12 @@
 #![feature(slice_internals)]
 use core::slice::memchr::memchr;
-use std::{fs::File, io::{BufReader, Error, Read, Seek}, path::Path, process::exit, time::{Duration, Instant}};
+use std::{fs::File, io::{Error, Read}, path::Path, process::exit};
 
-use fastq_reader::{byte_reader::ByteReader, fastq_reader::FastqReader, parallel::fastq::read_fastq_pair_par, sequence::fastq_record::RefRecord};
-use fastq_reader::utils::is_gzip;
+use bioreader::{byte_reader::ByteReader, fastq_reader::FastqReader, parallel::fastq::read_fastq_pair_par, sequence::fastq_record::RefRecord};
+use bioreader::utils::{self, is_gzip};
 use flate2::read::GzDecoder;
-use bgzf::Reader;
 use memmap2::Mmap;
 
-fn time<T, E, F>(f: F) -> Result<(Duration, T), E> 
-    where F: FnOnce() -> Result<T,E> {
-
-    let start: Instant = Instant::now();
-    let result: T = f()?;
-    let duration = start.elapsed();
-    Ok((duration, result))
-}
 
 fn read_fastq<T>(file: T, buffer_size: usize) -> Result<usize, std::io::Error> where
         T: Read {
@@ -70,16 +61,17 @@ fn test_paired_fq_parallel() -> Result<(), Error> {
         kmer_count as usize
     };
 
-    let path_1: &Path = Path::new("data/fastq/weird_1.fq.gz");
-    let path_2: &Path = Path::new("data/fastq/weird_2.fq.gz");
+    // let path_1: &Path = Path::new("data/fastq/small_test_gzip_1.fq.gz");
+    // let path_2: &Path = Path::new("data/fastq/small_test_gzip_2.fq.gz");
+
+    let path_1: &Path = Path::new("data/large_data/fastq/weird_1.fq.gz");
+    let path_2: &Path = Path::new("data/large_data/fastq/weird_2.fq.gz");
 
     let file_1 = File::open(&path_1)?;
     let file_2 = File::open(&path_2)?;
 
-    let start: Instant = Instant::now();
-
     let (duration, result) = 
-        time(move || read_fastq_pair_par(
+        utils::time(move || read_fastq_pair_par(
         GzDecoder::new(file_1),
         GzDecoder::new(file_2),
         usize::pow(2, 24),
@@ -94,47 +86,47 @@ fn test_paired_fq_parallel() -> Result<(), Error> {
 fn main() {
     let _result = test_paired_fq_parallel();
 
-    exit(9);
+    // exit(9);
 
-    let path_fq: &Path = Path::new("data/fastq/SRR7280802_1c.fastq");
-    let path_fq_gz: &Path = Path::new("data/fastq/SRR7280802_1c.fq.gz");
+    // let path_fq: &Path = Path::new("data/fastq/SRR7280802_1c.fastq");
+    // let path_fq_gz: &Path = Path::new("data/fastq/SRR7280802_1c.fq.gz");
 
-    println!("Is gz? {}", is_gzip(path_fq_gz).unwrap());
-    println!("Is gz? {}", is_gzip(path_fq).unwrap());
+    // println!("Is gz? {}", is_gzip(path_fq_gz).unwrap());
+    // println!("Is gz? {}", is_gzip(path_fq).unwrap());
 
-    let mut file1 = match File::open(&path_fq) {
-        Err(why) => panic!("couldn't open {}: {}", &path_fq.display(), why),
-        Ok(file) => file,
-    };
-    // let mut file1_gz = match File::open(&path_fq_gz).map(|file| GzDecoder::new(file)) {
+    // let mut file1 = match File::open(&path_fq) {
+    //     Err(why) => panic!("couldn't open {}: {}", &path_fq.display(), why),
+    //     Ok(file) => file,
+    // };
+    // // let mut file1_gz = match File::open(&path_fq_gz).map(|file| GzDecoder::new(file)) {
+    // //     Err(why) => panic!("couldn't open {}: {}", path_fq.display(), why),
+    // //     Ok(file_gz) => file_gz,
+    // // }; 
+
+    // let mut file1_gz = match File::open(&path_fq_gz) {
     //     Err(why) => panic!("couldn't open {}: {}", path_fq.display(), why),
-    //     Ok(file_gz) => file_gz,
-    // }; 
+    //     Ok(file) => file,
+    // };
 
-    let mut file1_gz = match File::open(&path_fq_gz) {
-        Err(why) => panic!("couldn't open {}: {}", path_fq.display(), why),
-        Ok(file) => file,
-    };
+    // // let file1b: Box<dyn Read> = Box::new(GzDecoder::new(&file1));
+    // // let filegz: Box<dyn Read> = Box::new(GzDecoder::new(&file1_gz));
 
-    // let file1b: Box<dyn Read> = Box::new(GzDecoder::new(&file1));
-    // let filegz: Box<dyn Read> = Box::new(GzDecoder::new(&file1_gz));
+    // // let newred = BufReader::new(file1b);
+    // // let newred2 = GzDecoder::new(file1b);
 
-    // let newred = BufReader::new(file1b);
-    // let newred2 = GzDecoder::new(file1b);
-
-    let buffer_size = 1_000_000;
-    let (duration, result) = 
-        time(|| read_fastq(&file1, buffer_size)).expect("No Shit");
-    println!("Time elapsed in read_fastq() is: {:?} -> Result: {}", duration, result);
+    // let buffer_size = 1_000_000;
+    // let (duration, result) = 
+    //     utils::time(|| read_fastq(&file1, buffer_size)).expect("No Shit");
+    // println!("Time elapsed in read_fastq() is: {:?} -> Result: {}", duration, result);
 
 
-    let (duration, result) = 
-        time(|| read_fastq(GzDecoder::new(&file1_gz), buffer_size)).expect("Cannot create GZDecoder");
-    println!("Time elapsed in read_fastq() is: {:?} -> Result: {}", duration, result);
+    // let (duration, result) = 
+    //     utils::time(|| read_fastq(GzDecoder::new(&file1_gz), buffer_size)).expect("Cannot create GZDecoder");
+    // println!("Time elapsed in read_fastq() is: {:?} -> Result: {}", duration, result);
     
-    let (duration, result) = 
-        time(move || read_fastq_mm(path_fq)).expect("No Shit");
-    println!("Time elapsed in read_fastq_mm() is: {:?} -> Result: {}", duration, result);
+    // let (duration, result) = 
+    //     utils::time(move || read_fastq_mm(path_fq)).expect("No Shit");
+    // println!("Time elapsed in read_fastq_mm() is: {:?} -> Result: {}", duration, result);
 
 
     println!("Hello, world!");
