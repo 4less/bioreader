@@ -1,0 +1,20 @@
+cargo-features = ["profile-rustflags"]
+
+[package]
+name = "fastq_reader"
+version = "0.1.0"
+edition = "2021"
+channel = "nightly"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bgzf = "0.2.0"
+flate2 = "1.0.28"
+memchr = { version = "2.7.1", use_std=true }
+memmap2 = "0.9.4"
+
+[profile.dev]
+opt-level = 3               # Use best optimizations
+overflow-checks = false     # Disable integer overflow checks.
+rustflags = ["-C", "target-feature=+sse3,+avx,+avx2"]
