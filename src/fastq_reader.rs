@@ -112,8 +112,8 @@ impl<T: Read> PairedFastqReader<T> {
             buf_pos: &self.buf1_pos,
         };
         let r2 = RefRecord {
-            buffer: &self.buffer1,
-            buf_pos: &self.buf1_pos,
+            buffer: &self.buffer2,
+            buf_pos: &self.buf2_pos,
         };
 
         Some((r1, r2))
