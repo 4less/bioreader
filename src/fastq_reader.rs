@@ -1,5 +1,6 @@
 use memchr::memchr;
 use std::{io::{Error, Read}, sync::{Arc, Mutex}};
+use ::lending_iterator::prelude::*;
 
 // use memmap2::Mmap;
 
@@ -172,8 +173,14 @@ impl<'a, T: Read> PairedFastqReader<'a, T> {
         Some(())
     }
 
-
+    pub fn iter_mut(&'a mut self) -> PairedFastqReaderIter<'a, T> where T: Read {
+        PairedFastqReaderIter {
+            paired_fastq_reader: self,
+            i: 0,
+        }
+    }
 }
+
 
 
 pub struct PairedFastqReaderIter<'a, T> where T: Read {
@@ -181,27 +188,33 @@ pub struct PairedFastqReaderIter<'a, T> where T: Read {
     i: usize,
 }
 
-impl<'a, T> Iterator for PairedFastqReaderIter<'a, T> where T: Read {
-    type Item = (RefRecord<'a>, RefRecord<'a>);
+#[gat]
+impl<'a, T> LendingIterator for PairedFastqReaderIter<'a, T> where T: Read {
 
-    fn next(&mut self) -> Option<Self::Item> {
+    type Item<'next> = (RefRecord<'next>, RefRecord<'next>) where Self: 'next;
+
+    fn next(&mut self) -> Option<(RefRecord, RefRecord)> {
         self.paired_fastq_reader.load_next();
+        // match &self.paired_fastq_reader.rec {
+        //     Some(pair) => Some(pair),
+        //     None => None,
+        // }
         self.paired_fastq_reader.rec.take()
     }
 }
 
-impl<'a, T> IntoIterator for &'a mut PairedFastqReader<'a, T> where T: Read {
-    type Item = (RefRecord<'a>, RefRecord<'a>);
+// impl<'a, T> IntoIterator for &'a mut PairedFastqReader<'a, T> where T: Read {
+//     type Item = (RefRecord<'a>, RefRecord<'a>);
 
-    type IntoIter = PairedFastqReaderIter<'a, T>;
+//     type IntoIter = PairedFastqReaderIter<'a, T>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        PairedFastqReaderIter {
-            paired_fastq_reader: self,
-            i: 0,
-        }
-    }
-}
+//     fn into_iter(self) -> Self::IntoIter {
+//         PairedFastqReaderIter {
+//             paired_fastq_reader: self,
+//             i: 0,
+//         }
+//     }
+// }
 
 
 #[derive(Debug, Clone)]

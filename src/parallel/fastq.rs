@@ -1,5 +1,7 @@
 use std::sync::{mpsc, Arc, Mutex};
 
+use lending_iterator::LendingIterator;
+
 use crate::{
     byte_reader::{ByteReader, PairedByteReader},
     fastq_reader::{FastqReader, PairedFastqReader},
@@ -113,7 +115,9 @@ where
             let tx: mpsc::Sender<usize> = tx.clone();
             
             threads.push(scope.spawn(move || {
-                while let Some((record1, record2)) = fastq_reader.next_position() {
+                // while let Some((record1, record2)) = fastq_reader.next() {
+                // for (record1, record2) in fastq_reader.iter_mut()
+                fastq_reader.iter_mut().for_each(|(record1, record2)| {
                     count += 1;
                     if !record1.valid() {
                         panic!("Invalid record {}", record1)
@@ -130,7 +134,7 @@ where
                         result_buffer = 0;
                         count -= 10_000;
                     }
-                }
+                });
                 let _ = tx.send(result_buffer);
                 count2
             }));
