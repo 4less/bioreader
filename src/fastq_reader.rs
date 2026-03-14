@@ -3,7 +3,7 @@ use std::{io::{Error, Read}, sync::{Arc, Mutex}};
 
 // use memmap2::Mmap;
 
-use crate::{byte_reader::{FillBufferPair, PairedByteReader}, sequence::fastq_record::{BufferPosition, RefRecord}};
+use crate::{fastq_byte_reader::{FillBufferPair, FastqPairedByteReader}, sequence::fastq_record::{BufferPosition, RefFastqRecord}};
 
 #[cfg(windows)]
 const LINE_ENDING: &'static str = "\r\n";
@@ -12,7 +12,7 @@ const LINE_ENDING: &'static str = "\n";
 
 
 pub struct PairedFastqReader<T> where T: Read{
-    reader: Arc<Mutex<PairedByteReader<T>>>,
+    reader: Arc<Mutex<FastqPairedByteReader<T>>>,
     pub buffer1: Vec<u8>,
     pub buffer1_fill: usize,
     pub buffer2: Vec<u8>,
@@ -22,8 +22,8 @@ pub struct PairedFastqReader<T> where T: Read{
 }
 
 impl<T: Read> PairedFastqReader<T> {
-    pub fn new(reader: Arc<Mutex<PairedByteReader<T>>>, capacity: usize) -> Self {
-        PairedFastqReader {
+    pub fn new(reader: Arc<Mutex<FastqPairedByteReader<T>>>, capacity: usize) -> Self {
+        Self {
             reader: reader,
             buffer1: vec![0; capacity],
             buffer1_fill: 0,
@@ -43,7 +43,6 @@ impl<T: Read> PairedFastqReader<T> {
             Some((pos1, pos2)) => {
                 self.buffer1_fill = pos1;
                 self.buffer2_fill = pos2;
-                // println!("{} {}", self.buffer1_fill, self.buffer2_fill);
 
                 Ok(Some(()))
             },
@@ -74,7 +73,7 @@ impl<T: Read> PairedFastqReader<T> {
         Some(())
     }
 
-    pub fn next(&mut self) -> Option<(RefRecord, RefRecord)> {
+    pub fn next(&mut self) -> Option<(RefFastqRecord, RefFastqRecord)> {
         self.buf1_pos.pos.1 += (self.buf1_pos.pos.1 > 0) as usize;
         self.buf2_pos.pos.1 += (self.buf2_pos.pos.1 > 0) as usize;
 
@@ -107,11 +106,11 @@ impl<T: Read> PairedFastqReader<T> {
         PairedFastqReader::<T>::find_position(&mut self.buffer1[..self.buffer1_fill], &mut self.buf1_pos);
         PairedFastqReader::<T>::find_position(&mut self.buffer2[..self.buffer2_fill], &mut self.buf2_pos);
 
-        let r1 = RefRecord {
+        let r1 = RefFastqRecord {
             buffer: &self.buffer1,
             buf_pos: &self.buf1_pos,
         };
-        let r2 = RefRecord {
+        let r2 = RefFastqRecord {
             buffer: &self.buffer2,
             buf_pos: &self.buf2_pos,
         };
@@ -149,18 +148,6 @@ impl<'a> FastqReader {
         }
     }
 
-    // #[inline]
-    // pub fn load_batch(&mut self, br: &mut impl FillBuffer) -> Result<Option<()>, std::io::Error> {
-    //     self.buf_pos.reset(0);
-    //     match br.fill_buf(&mut self.buffer)? {
-    //         Some(bytes) => {
-    //             self.buffer_size = bytes;
-    //             Ok(Some(()))
-    //         },
-    //         None => Ok(None)
-    //     }
-    // }
-
     #[inline]
     pub fn load_batch<T>(&mut self, br: &mut T) -> Result<Option<()>, std::io::Error> where 
             T: std::io::Read {
@@ -188,15 +175,13 @@ impl<'a> FastqReader {
         }
     }
 
-    pub fn next(&mut self) -> Option<RefRecord> {
+    pub fn next(&mut self) -> Option<RefFastqRecord> {
         self.buf_pos.pos.1 += (self.buf_pos.pos.1 > 0) as usize;
 
         if self.buf_pos.pos.1 >= self.buffer_size {
             return None;
         }
 
-        // println!("Size: {}\nBuffer: {}", self.buffer_size,  std::str::from_utf8(&self.buffer).unwrap());
-        // println!("Size: {}", self.buffer_size);
 
         assert!(self.buf_pos.pos.0 == 0  || self.buffer[self.buf_pos.pos.0-1] == b'\n');
         assert!(self.buffer[self.buf_pos.pos.0] == b'@');
@@ -213,7 +198,7 @@ impl<'a> FastqReader {
         self.buf_pos.sep = pos2;
         self.buf_pos.qual = pos3;
 
-        Some(RefRecord {
+        Some(RefFastqRecord {
             buffer: &self.buffer,
             buf_pos: &self.buf_pos,
         })

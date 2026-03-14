@@ -24,3 +24,12 @@ pub fn time<T, E, F>(f: F) -> Result<(Duration, T), E>
     let duration = start.elapsed();
     Ok((duration, result))
 }
+
+pub fn time_noerr<T, F>(f: F) -> (Duration, T)
+    where F: FnOnce() -> T {
+
+    let start: Instant = Instant::now();
+    let result: T = f();
+    let duration = start.elapsed();
+    (duration, result)
+}
