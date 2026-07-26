@@ -1,7 +1,7 @@
 use std::sync::{mpsc, Arc, Mutex};
 
 use crate::{
-    fasta_byte_reader::FastaByteReader, fasta_reader::FastaReader, fastq_byte_reader::{FastqByteReader, FastqPairedByteReader}, fastq_reader::{self, FastqReader, PairedFastqReader}, sequence::{fasta_record::OwnedFastaRecord, fastq_record::RefFastqRecord}
+    fasta_byte_reader::FastaByteReader, fasta_reader::FastaReader, fastq_byte_reader::{FastqByteReader, FastqPairedByteReader, ReadId}, fastq_reader::{self, FastqReader, PairedFastqReader}, sequence::{fasta_record::OwnedFastaRecord, fastq_record::RefFastqRecord}
 };
 
 pub fn read_fastq_par<G, T>(
@@ -278,6 +278,63 @@ where
             }));
         }
         
+        for thread_guard in threads {
+            let mut state = match thread_guard.join() {
+                Ok(state) => state,
+                Err(err) => panic!("Error {:?}", err),
+            };
+            global_state.merge_from(&mut state);
+        }
+    });
+    Ok(global_state)
+}
+
+
+/// Read-id variant of [`read_fastq_paired_end_state_par`]. Identical driver, except each
+/// pair is passed to the closure alongside its deterministic [`ReadId`]
+/// `(ordinal, byte_offset1, byte_offset2)`. See [`ReadId`] for the determinism guarantees.
+///
+/// This is additive: the plain variant is untouched, so existing callers pay nothing for the
+/// id machinery. Batch decomposition, threading and merge semantics are exactly the same.
+pub fn read_fastq_paired_end_state_par_ids<G, T, State>(
+    file1: T,
+    file2: T,
+    buffer_size: usize,
+    num_threads: u32,
+    mut global_state: State,
+    f: G,
+) -> Result<State, std::io::Error>
+where
+    G: FnMut(&RefFastqRecord, &RefFastqRecord, ReadId, &mut State) -> () + Clone + Send,
+    T: std::io::Read + std::marker::Send,
+    State: Default + Clone + Send + Merge,
+{
+    // This scope guarantees that all threads finish within the scope. This way, lifetimes of G and T do not need to be 'static
+    std::thread::scope(|scope| {
+        let byte_reader = Arc::new(Mutex::new(FastqPairedByteReader::new(file1, file2, buffer_size)));
+        let mut threads = Vec::new();
+
+        for _thread in 0..num_threads {
+            let mut fastq_reader = PairedFastqReader::new(byte_reader.clone(), buffer_size);
+            let mut state = global_state.clone();
+            let mut f_local = f.clone();
+
+            threads.push(scope.spawn(move || {
+                while let Some((record1, record2, read_id)) = fastq_reader.next_id() {
+                    if !record1.valid_extended() {
+                        panic!("Invalid record {}", record1)
+                    }
+                    if !record2.valid_extended() {
+                        panic!("Invalid record {}", record2)
+                    }
+
+                    f_local(&record1, &record2, read_id, &mut state);
+                }
+
+                state
+            }));
+        }
+
         for thread_guard in threads {
             let mut state = match thread_guard.join() {
                 Ok(state) => state,

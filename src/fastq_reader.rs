@@ -3,7 +3,7 @@ use std::{io::{Error, Read}, sync::{Arc, Mutex}};
 
 // use memmap2::Mmap;
 
-use crate::{fastq_byte_reader::{FillBufferPair, FastqPairedByteReader}, sequence::fastq_record::{BufferPosition, RefFastqRecord}};
+use crate::{fastq_byte_reader::{BatchBase, FillBufferPair, FastqPairedByteReader, ReadId}, sequence::fastq_record::{BufferPosition, RefFastqRecord}};
 
 #[cfg(windows)]
 const LINE_ENDING: &'static str = "\r\n";
@@ -19,6 +19,11 @@ pub struct PairedFastqReader<T> where T: Read{
     pub buffer2_fill: usize,
     buf1_pos: BufferPosition,
     buf2_pos: BufferPosition,
+    // Read-id state for the `*_ids` path only; the plain `next()` never reads these.
+    // `batch_base` is the id of the current batch's first record (fetched under the reader
+    // lock by `load_batch_par_ids`); `idx_in_batch` counts records emitted from this batch.
+    batch_base: BatchBase,
+    idx_in_batch: u64,
 }
 
 impl<T: Read> PairedFastqReader<T> {
@@ -31,6 +36,8 @@ impl<T: Read> PairedFastqReader<T> {
             buffer2_fill: 0,
             buf1_pos: BufferPosition::default(),
             buf2_pos: BufferPosition::default(),
+            batch_base: BatchBase::default(),
+            idx_in_batch: 0,
         }
     }
 
@@ -116,6 +123,80 @@ impl<T: Read> PairedFastqReader<T> {
         };
 
         Some((r1, r2))
+    }
+
+    /// Like [`load_batch_par`](Self::load_batch_par), but pulls the batch through
+    /// [`fill_buf_ids`](FastqPairedByteReader::fill_buf_ids) and records the batch's id base,
+    /// resetting the within-batch record counter. Used only by [`next_id`](Self::next_id).
+    #[inline]
+    pub fn load_batch_par_ids(&mut self) -> Result<Option<()>, std::io::Error> {
+        match self.reader.lock().expect("Locking ByteReader was unsuccessful")
+                .fill_buf_ids(&mut self.buffer1, &mut self.buffer2)? {
+
+            Some((pos1, pos2, base)) => {
+                self.buffer1_fill = pos1;
+                self.buffer2_fill = pos2;
+                self.batch_base = base;
+                self.idx_in_batch = 0;
+
+                Ok(Some(()))
+            },
+            None => Ok(None)
+        }
+    }
+
+    /// The read-id counterpart of [`next`](Self::next): yields each pair together with its
+    /// deterministic [`ReadId`]. Behaves identically to `next` for record iteration — this is
+    /// deliberately a near-duplicate rather than a wrapper, because `next` returns records
+    /// that borrow `self`, leaving no room to also hand back an id from a shared helper. Keep
+    /// the two in sync; the only differences are the `_ids` batch load and the id it derives
+    /// from the batch base plus each record's in-buffer offset.
+    pub fn next_id(&mut self) -> Option<(RefFastqRecord, RefFastqRecord, ReadId)> {
+        self.buf1_pos.pos.1 += (self.buf1_pos.pos.1 > 0) as usize;
+        self.buf2_pos.pos.1 += (self.buf2_pos.pos.1 > 0) as usize;
+
+        let at_end1 = self.buf1_pos.pos.1 >= self.buffer1_fill;
+        let at_end2 = self.buf2_pos.pos.1 >= self.buffer2_fill;
+
+        assert_eq!(at_end1, at_end2);
+
+        if at_end1 && at_end2 {
+            let load = self.load_batch_par_ids().expect("Valid filestream");
+
+            self.buf1_pos.reset(0);
+            self.buf2_pos.reset(0);
+            if load.is_none() { return None; }
+        }
+
+        assert!(self.buffer1[self.buf1_pos.pos.0] == b'@');
+        assert!(self.buffer2[self.buf2_pos.pos.0] == b'@');
+        assert!(self.buf1_pos.pos.0 == 0  || self.buffer1[self.buf1_pos.pos.0-1] == b'\n');
+        assert!(self.buf2_pos.pos.0 == 0  || self.buffer2[self.buf2_pos.pos.0-1] == b'\n');
+
+        PairedFastqReader::<T>::find_position(&mut self.buffer1[..self.buffer1_fill], &mut self.buf1_pos);
+        PairedFastqReader::<T>::find_position(&mut self.buffer2[..self.buffer2_fill], &mut self.buf2_pos);
+
+        // `pos.0` is the record's start within the batch buffer, which begins at the batch's
+        // file offset; adding the two gives the record's absolute byte offset in the file.
+        let read_id = ReadId {
+            ordinal: self.batch_base.ordinal + self.idx_in_batch,
+            byte_offset1: self.batch_base.byte_offset1 + self.buf1_pos.pos.0 as u64,
+            byte_offset2: self.batch_base.byte_offset2 + self.buf2_pos.pos.0 as u64,
+            batch_id: self.batch_base.batch_id,
+            idx_in_batch: self.idx_in_batch,
+        };
+        self.idx_in_batch += 1;
+
+        let r1 = RefFastqRecord {
+            buffer: &self.buffer1,
+            buf_pos: &self.buf1_pos,
+        };
+        let r2 = RefFastqRecord {
+            buffer: &self.buffer2,
+            buf_pos: &self.buf2_pos,
+        };
+
+        Some((r1, r2, read_id))
     }
 
 
