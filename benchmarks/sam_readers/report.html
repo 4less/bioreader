@@ -1,0 +1,839 @@
+<title>SAM reader benchmark — bioreader vs noodles-sam</title>
+
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f7f8f5;
+    --card: #ffffff;
+    --ink: #12211e;
+    --ink-2: #3c4a46;
+    --muted: #667571;
+    --rule: #dde3de;
+    --rule-strong: #c3ccc6;
+
+    --s-bioreader: #0e9384;
+    --s-noodles: #c25e1a;
+    --s-naive: #6a5ac4;
+    --s-floor: #94a29c;
+
+    --pass: #2e7d57;
+    --fail: #b3402f;
+
+    --track: #eceee9;
+
+    --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+    --serif: Charter, "Bitstream Charter", "Iowan Old Style", "Source Serif 4", "Source Serif Pro", Georgia, serif;
+
+    --measure: 68ch;
+    --page: 1080px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --paper: #0e1211;
+      --card: #121614;
+      --ink: #e7ede9;
+      --ink-2: #c2ccc7;
+      --muted: #8b9a94;
+      --rule: #232b28;
+      --rule-strong: #33403b;
+
+      --s-bioreader: #1fa292;
+      --s-noodles: #cb7b24;
+      --s-naive: #8b82d8;
+      --s-floor: #6d7c76;
+
+      --pass: #4fb07e;
+      --fail: #e0705c;
+
+      --track: #1b211f;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0e1211;
+    --card: #121614;
+    --ink: #e7ede9;
+    --ink-2: #c2ccc7;
+    --muted: #8b9a94;
+    --rule: #232b28;
+    --rule-strong: #33403b;
+    --s-bioreader: #1fa292;
+    --s-noodles: #cb7b24;
+    --s-naive: #8b82d8;
+    --s-floor: #6d7c76;
+    --pass: #4fb07e;
+    --fail: #e0705c;
+    --track: #1b211f;
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --paper: #f7f8f5;
+    --card: #ffffff;
+    --ink: #12211e;
+    --ink-2: #3c4a46;
+    --muted: #667571;
+    --rule: #dde3de;
+    --rule-strong: #c3ccc6;
+    --s-bioreader: #0e9384;
+    --s-noodles: #c25e1a;
+    --s-naive: #6a5ac4;
+    --s-floor: #94a29c;
+    --pass: #2e7d57;
+    --fail: #b3402f;
+    --track: #eceee9;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: var(--page);
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 72px) clamp(18px, 4vw, 44px) 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  /* ---------------------------------------------------------- masthead */
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    border-bottom: 1px solid var(--rule-strong);
+    padding-bottom: 28px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(28px, 4.4vw, 44px);
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    text-wrap: balance;
+    max-width: 22ch;
+  }
+
+  .nb { white-space: nowrap; }
+
+  .standfirst {
+    max-width: var(--measure);
+    font-size: 19px;
+    color: var(--ink-2);
+  }
+
+  .runmeta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 2px 28px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--rule);
+    padding-top: 16px;
+  }
+
+  .runmeta div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 3px 0;
+    border-bottom: 1px dotted var(--rule);
+  }
+
+  .runmeta dt {
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 11px;
+  }
+
+  .runmeta dd {
+    color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* ------------------------------------------------------- stat tiles */
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+  }
+
+  .tile {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 20px 22px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tile .label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .tile .value {
+    font-family: var(--mono);
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    color: var(--s-bioreader);
+    line-height: 1.05;
+  }
+
+  .tile .value .unit {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink-2);
+    letter-spacing: 0;
+  }
+
+  .tile .note {
+    font-size: 14.5px;
+    color: var(--ink-2);
+    line-height: 1.45;
+  }
+
+  /* --------------------------------------------------------- sections */
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  h2 {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--ink);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule-strong);
+  }
+
+  h3 {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+  }
+
+  p {
+    max-width: var(--measure);
+    color: var(--ink-2);
+  }
+
+  p + p { margin-top: -6px; }
+
+  strong { color: var(--ink); font-weight: 600; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--track);
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: var(--ink);
+  }
+
+  a { color: var(--s-bioreader); text-underline-offset: 3px; }
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--s-bioreader);
+    outline-offset: 3px;
+  }
+
+  /* ----------------------------------------------------------- charts */
+
+  figure {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 22px 24px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  figcaption {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+    order: 2;
+    border-top: 1px solid var(--rule);
+    padding-top: 12px;
+    line-height: 1.5;
+  }
+
+  .chart-title {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    background: var(--c);
+    flex: none;
+  }
+
+  .bars {
+    display: grid;
+    grid-template-columns: minmax(96px, max-content) 1fr minmax(76px, max-content);
+    align-items: center;
+    gap: 7px 14px;
+  }
+
+  .bars .rowlabel.sub {
+    color: var(--muted);
+    padding-left: 10px;
+  }
+
+  .bars .rowlabel {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+
+  .track {
+    background: var(--track);
+    border-radius: 2px;
+    height: 17px;
+    overflow: hidden;
+  }
+
+  .bar {
+    height: 100%;
+    width: calc(var(--v) / var(--max) * 100%);
+    background: var(--c, var(--s-bioreader));
+    border-radius: 0 4px 4px 0;
+    min-width: 2px;
+  }
+
+  .bar.hatch {
+    background-image: repeating-linear-gradient(
+      135deg, transparent 0 5px, rgba(255, 255, 255, 0.42) 5px 7px
+    );
+  }
+
+  .bar.floor {
+    background-image: repeating-linear-gradient(
+      135deg, transparent 0 4px, rgba(255, 255, 255, 0.35) 4px 6px
+    );
+    background-color: var(--s-floor);
+  }
+
+  .bars .rowvalue {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .bars .rowvalue small {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .group-gap { height: 8px; grid-column: 1 / -1; }
+
+  /* ----------------------------------------------------------- tables */
+
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--card);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  th, td {
+    padding: 9px 14px;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  th {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--track);
+  }
+
+  th:first-child, td:first-child,
+  th.text, td.text { text-align: left; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.dim { color: var(--muted); }
+  td.best { color: var(--s-bioreader); font-weight: 600; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    border: 1px solid currentColor;
+  }
+
+  .chip.pass { color: var(--pass); }
+
+  .marker {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 2px;
+    background: var(--c);
+    margin-right: 7px;
+    vertical-align: baseline;
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    color: var(--ink-2);
+  }
+
+  pre .c { color: var(--muted); }
+
+  ul {
+    max-width: var(--measure);
+    color: var(--ink-2);
+    padding-left: 1.1em;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  li::marker { color: var(--muted); }
+
+  .footnote {
+    font-size: 14px;
+    color: var(--muted);
+    max-width: var(--measure);
+  }
+
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">bioreader · benchmark report · 2026-07-26</div>
+    <h1>Reading SAM at <span class="nb">4.5 GB/s</span> on one thread</h1>
+    <p class="standfirst">
+      bioreader's new multithreaded SAM reader measured against
+      <a href="https://crates.io/crates/noodles-sam">noodles-sam&nbsp;0.87</a> and a plain
+      <code>BufReader</code> + <code>split('\t')</code> baseline, on identical work over the same
+      files. These medians are also the regression floor the reader is now held to.
+    </p>
+    <dl class="runmeta">
+      <div><dt>Machine</dt><dd>Ryzen AI 9 HX 370, 12C/24T</dd></div>
+      <div><dt>Memory</dt><dd>93 GB, page cache warm</dd></div>
+      <div><dt>Toolchain</dt><dd>rustc nightly, opt-level 3</dd></div>
+      <div><dt>Samples</dt><dd>5 runs, median</dd></div>
+      <div><dt>Short file</dt><dd>1.58 GB · 4M rec</dd></div>
+      <div><dt>Long file</dt><dd>1.21 GB · 60k rec</dd></div>
+    </dl>
+  </header>
+
+  <section class="tiles" aria-label="Headline results">
+    <div class="tile">
+      <div class="label">Short reads · 1 thread</div>
+      <div class="value">11.45<span class="unit"> M rec/s</span></div>
+      <div class="note">1.73&times; noodles-sam, 2.7&times; the naive baseline, on 150 bp records.</div>
+    </div>
+    <div class="tile">
+      <div class="label">Short reads · 8 threads</div>
+      <div class="value">27.61<span class="unit"> M rec/s</span></div>
+      <div class="note">10.9 GB/s — 2.6&times; single-thread, then memory bandwidth caps it.</div>
+    </div>
+    <div class="tile">
+      <div class="label">Long reads · 1 thread</div>
+      <div class="value">16.09<span class="unit"> GB/s</span></div>
+      <div class="note">0.87&times; noodles-sam. On 10 kb records the copy, not the parse, is the cost.</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What was measured</h2>
+    <p>
+      Every contender walks the whole file and, for each alignment record, sums <strong>SEQ
+      length + POS + the NM tag</strong> — one length, one integer field and one optional-field
+      lookup, so no implementation can win by skipping work. Each returns a checksum and a record
+      count, and the harness asserts every implementation produces the same pair. All rows below
+      passed that check.
+    </p>
+    <p>
+      Both files are synthetic but realistically shaped: an 8-line header, ~5% unmapped records
+      and five optional fields (<code>NM MD AS XS RG</code>) on every mapped record. The page
+      cache is warmed before timing, so these are parser numbers, not disk numbers.
+    </p>
+    <p>
+      Both readers are compared at their own best buffer setting — bioreader at 1 MiB batches,
+      noodles at a 256 KiB <code>BufReader</code> — found by the sweep further down. The naive
+      baseline is what a straightforward implementation looks like: read a line, split on tabs,
+      <code>str::parse</code>.
+    </p>
+  </section>
+
+  <section>
+    <h2>Short reads — 1.58 GB, 4M records of 150 bp</h2>
+
+    <figure>
+      <div class="chart-title">Single-thread throughput, million records per second</div>
+      <div class="bars" style="--max: 11.45">
+        <div class="rowlabel">bioreader</div>
+        <div class="track"><div class="bar" style="--v: 11.45; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">11.45 <small>349 ms</small></div>
+
+        <div class="rowlabel">noodles-sam</div>
+        <div class="track"><div class="bar" style="--v: 6.62; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">6.62 <small>605 ms</small></div>
+
+        <div class="rowlabel">naive split</div>
+        <div class="track"><div class="bar" style="--v: 4.25; --c: var(--s-naive)"></div></div>
+        <div class="rowvalue">4.25 <small>941 ms</small></div>
+      </div>
+      <figcaption>
+        Ceiling for reference: <code>read()</code> + <code>memchr</code> with no parsing at all
+        runs the same file at 50.74 M rec/s (79 ms). Every parser here is well short of the I/O
+        floor, so parsing — not reading — is the bottleneck on short records.
+      </figcaption>
+    </figure>
+
+    <figure>
+      <div class="chart-title">Thread scaling, million records per second</div>
+      <div class="legend">
+        <span><i class="swatch" style="--c: var(--s-bioreader)"></i>bioreader</span>
+        <span><i class="swatch" style="--c: var(--s-noodles)"></i>noodles-sam parser, bioreader chunker</span>
+      </div>
+      <div class="bars" style="--max: 27.61">
+        <div class="rowlabel">1 thread</div>
+        <div class="track"><div class="bar" style="--v: 10.59; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">10.59</div>
+        <div class="rowlabel sub">noodles</div>
+        <div class="track"><div class="bar" style="--v: 6.35; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">6.35</div>
+        <div class="group-gap"></div>
+
+        <div class="rowlabel">2 threads</div>
+        <div class="track"><div class="bar" style="--v: 17.91; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">17.91</div>
+        <div class="rowlabel sub">noodles</div>
+        <div class="track"><div class="bar" style="--v: 11.03; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">11.03</div>
+        <div class="group-gap"></div>
+
+        <div class="rowlabel">4 threads</div>
+        <div class="track"><div class="bar" style="--v: 24.96; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">24.96</div>
+        <div class="rowlabel sub">noodles</div>
+        <div class="track"><div class="bar" style="--v: 17.94; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">17.94</div>
+        <div class="group-gap"></div>
+
+        <div class="rowlabel">8 threads</div>
+        <div class="track"><div class="bar" style="--v: 27.61; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">27.61</div>
+        <div class="rowlabel sub">noodles</div>
+        <div class="track"><div class="bar" style="--v: 24.67; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">24.67</div>
+        <div class="group-gap"></div>
+
+        <div class="rowlabel">16 threads</div>
+        <div class="track"><div class="bar" style="--v: 24.14; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">24.14</div>
+        <div class="rowlabel sub">noodles</div>
+        <div class="track"><div class="bar" style="--v: 22.61; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">22.61</div>
+      </div>
+      <figcaption>
+        noodles ships no parallel SAM reader, so to give it a multithreaded showing its parser is
+        fed by bioreader's chunker — the amber bars measure noodles' record parsing with
+        bioreader's batching underneath. Both curves flatten at 8 threads and regress at 16:
+        the work per byte is small enough that memory bandwidth, not CPU, is the limit.
+      </figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Long reads — 1.21 GB, 60k records of 10 kb</h2>
+
+    <figure>
+      <div class="chart-title">Single-thread throughput, gigabytes per second</div>
+      <div class="bars" style="--max: 20.55">
+        <div class="rowlabel">I/O floor</div>
+        <div class="track"><div class="bar floor" style="--v: 20.55"></div></div>
+        <div class="rowvalue">20.55 <small>59 ms</small></div>
+
+        <div class="rowlabel">noodles-sam</div>
+        <div class="track"><div class="bar" style="--v: 18.46; --c: var(--s-noodles)"></div></div>
+        <div class="rowvalue">18.46 <small>65 ms</small></div>
+
+        <div class="rowlabel">bioreader</div>
+        <div class="track"><div class="bar" style="--v: 16.09; --c: var(--s-bioreader)"></div></div>
+        <div class="rowvalue">16.09 <small>75 ms</small></div>
+
+        <div class="rowlabel">naive split</div>
+        <div class="track"><div class="bar" style="--v: 3.30; --c: var(--s-naive)"></div></div>
+        <div class="rowvalue">3.30 <small>365 ms</small></div>
+      </div>
+      <figcaption>
+        The hatched bar is <code>read()</code> + <code>memchr</code> with no parsing — here both
+        readers are within 25% of it, so the file is being moved through memory about as fast as
+        it can be, and per-record parsing barely registers.
+      </figcaption>
+    </figure>
+
+    <p>
+      This is the one shape where noodles wins, and the reason is structural rather than a
+      parsing detail. With 10 kb records there are only 60,000 of them: per-record overhead is
+      irrelevant and what remains is how many times each byte is touched. noodles copies each
+      line into a reused record buffer that stays hot in L2; bioreader copies a whole batch out
+      of the shared reader so workers can parse without holding the lock, and that second pass
+      over cold memory costs the 10 ms.
+    </p>
+    <p>
+      Threads do not help here either — <strong>1 thread (14.09 GB/s) beats 8 (9.94 GB/s)</strong>
+      through the parallel driver, because there is no per-record work to parallelise and the
+      extra threads only add copy traffic. For long-read files with light per-record work, use
+      one thread; the moment the closure does real work per record, scaling returns.
+    </p>
+  </section>
+
+  <section>
+    <h2>Batch size is the biggest single knob</h2>
+    <p>
+      Both readers copy every byte through a buffer, so whether that buffer stays in cache
+      dominates everything else. The reader was first measured at 16 MiB batches, which turned
+      out to be the worst setting tested on both files. At 1 MiB the short file gets
+      <strong>25% faster</strong> and the long file <strong>2.3&times; faster</strong>.
+    </p>
+
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th>Batch size</th>
+            <th>Short, 1 thread</th>
+            <th>Short, 4 threads</th>
+            <th>Long, 1 thread</th>
+            <th>Long, 4 threads</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>64 KiB</td><td>346 ms</td><td>159 ms</td><td>87 ms</td><td>118 ms</td></tr>
+          <tr><td>256 KiB</td><td>355 ms</td><td class="best">127 ms</td><td class="best">72 ms</td><td class="best">103 ms</td></tr>
+          <tr><td>1 MiB</td><td class="best">344 ms</td><td>133 ms</td><td>77 ms</td><td class="best">103 ms</td></tr>
+          <tr><td>4 MiB</td><td>360 ms</td><td>170 ms</td><td>75 ms</td><td>129 ms</td></tr>
+          <tr><td>16 MiB</td><td class="dim">467 ms</td><td class="dim">230 ms</td><td class="dim">169 ms</td><td class="dim">181 ms</td></tr>
+          <tr><td>64 MiB</td><td class="dim">479 ms</td><td class="dim">295 ms</td><td class="dim">210 ms</td><td class="dim">252 ms</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="footnote">
+      Wall time, lower is better; teal marks the best column value. 256 KiB – 1 MiB is the sweet
+      spot on this machine and is what the comparison and the floors use. noodles' own
+      <code>BufReader</code> capacity was swept the same way and barely moved (581–605 ms across
+      64 KiB – 4 MiB), because it re-reads into the same small buffer regardless.
+    </p>
+  </section>
+
+  <section>
+    <h2>What the extra features cost</h2>
+    <div class="cols">
+      <figure>
+        <div class="chart-title">Deterministic read ids, million records per second</div>
+        <div class="bars" style="--max: 27.61">
+          <div class="rowlabel">plain · 1t</div>
+          <div class="track"><div class="bar" style="--v: 10.59; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">10.59</div>
+          <div class="rowlabel">+ ids · 1t</div>
+          <div class="track"><div class="bar hatch" style="--v: 10.38; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">10.38</div>
+          <div class="group-gap"></div>
+          <div class="rowlabel">plain · 8t</div>
+          <div class="track"><div class="bar" style="--v: 27.61; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">27.61</div>
+          <div class="rowlabel">+ ids · 8t</div>
+          <div class="track"><div class="bar hatch" style="--v: 17.86; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">17.86</div>
+        </div>
+        <figcaption>
+          Free on one thread, ~35% on eight. Assigning a dense file-order ordinal needs a record
+          count per batch, and that count is a second scan taken while the shared reader's lock
+          is held — so it serialises. <code>batch_id</code> and <code>byte_offset</code> alone
+          would not need it.
+        </figcaption>
+      </figure>
+
+      <figure>
+        <div class="chart-title">Gzipped input, million records per second</div>
+        <div class="bars" style="--max: 27.61">
+          <div class="rowlabel">plain · 8t</div>
+          <div class="track"><div class="bar" style="--v: 27.61; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">27.61</div>
+          <div class="group-gap"></div>
+          <div class="rowlabel">gz · 1t</div>
+          <div class="track"><div class="bar" style="--v: 4.17; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">4.17</div>
+          <div class="rowlabel">gz · 4t</div>
+          <div class="track"><div class="bar" style="--v: 5.30; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">5.30</div>
+          <div class="rowlabel">gz · 8t</div>
+          <div class="track"><div class="bar" style="--v: 3.78; --c: var(--s-bioreader)"></div></div>
+          <div class="rowvalue">3.78</div>
+          <div class="rowlabel">gz · noodles 1t</div>
+          <div class="track"><div class="bar" style="--v: 3.37; --c: var(--s-noodles)"></div></div>
+          <div class="rowvalue">3.37</div>
+        </div>
+        <figcaption>
+          Same file at gzip level 1 (91 MB). Decompression happens inside the shared reader,
+          under the lock, so it is single-threaded no matter how many workers there are and caps
+          the whole pipeline near 5 M rec/s. Threads past 4 only add contention.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section>
+    <h2>Regression floor</h2>
+    <p>
+      These medians are now a floor the reader is checked against, at 85% of the measured value —
+      enough headroom for run-to-run noise on a boosting laptop CPU (the multithreaded rows swing
+      about &plusmn;10%), tight enough to catch a real regression. Each floor records the baseline
+      it came from, so re-baselining is a deliberate edit rather than a quiet drift.
+    </p>
+
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th>Profile</th>
+            <th class="text">Scenario</th>
+            <th>Baseline</th>
+            <th>Floor</th>
+            <th>Latest</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>short</td><td class="text">bioreader 1 thread</td><td>11.45 M rec/s</td><td>9.70</td><td>11.34</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>short</td><td class="text">bioreader 4 threads</td><td>24.96 M rec/s</td><td>21.00</td><td>29.44</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>short</td><td class="text">bioreader 8 threads</td><td>27.61 M rec/s</td><td>23.40</td><td>29.91</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>short</td><td class="text">bioreader + ids, 8 threads</td><td>17.86 M rec/s</td><td>15.10</td><td>21.27</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>short</td><td class="text">vs noodles, 1 thread</td><td>1.73&times;</td><td>1.45&times;</td><td>1.65&times;</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>long</td><td class="text">bioreader 1 thread</td><td>16.09 GB/s</td><td>13.60</td><td>16.14</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>long</td><td class="text">bioreader 8 threads</td><td>9.94 GB/s</td><td>8.40</td><td>9.92</td><td><span class="chip pass">pass</span></td></tr>
+          <tr><td>long</td><td class="text">vs noodles, 1 thread</td><td>0.87&times;</td><td>0.74&times;</td><td>0.86&times;</td><td><span class="chip pass">pass</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="footnote">
+      The <em>vs noodles</em> rows are the portable ones: absolute throughput moves with the
+      machine, a ratio measured against another reader on the same machine mostly does not. On
+      different hardware, re-baseline the absolute floors and expect the ratios to hold.
+    </p>
+  </section>
+
+  <section>
+    <h2>Reproduce it</h2>
+    <pre><span class="c"># benchmarks/sam_readers</span>
+cargo build --release
+
+<span class="c"># synthetic data: 4M x 150 bp, and 60k x 10 kb</span>
+./target/release/gen short.sam 4000000 150
+./target/release/gen long.sam    60000 10000
+pigz -1 -k short.sam                 <span class="c"># optional, adds the gzip rows</span>
+
+<span class="c"># full report: batch-size sweep, then the comparison</span>
+./target/release/sambench short.sam 5
+
+<span class="c"># regression floor — exits 1 if anything drops below</span>
+./target/release/sambench --check short short.sam 3
+./target/release/sambench --check long  long.sam  3</pre>
+    <p class="footnote">
+      Floors live in <code>SHORT_FLOORS</code> / <code>LONG_FLOORS</code> in
+      <code>benchmarks/sam_readers/src/main.rs</code>. The harness verifies all implementations
+      agree on the checksum before reporting any timing, so an implementation that gets fast by
+      doing less fails instead of winning.
+    </p>
+  </section>
+
+</div>

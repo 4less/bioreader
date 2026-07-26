@@ -1,0 +1,23 @@
+[workspace]
+
+[package]
+name = "sambench"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bioreader = { path = "../.." }
+noodles-sam = "0.87"
+memchr = "2.7"
+flate2 = "1.1.9"
+
+[profile.release]
+opt-level = 3
+
+[[bin]]
+name = "sambench"
+path = "src/main.rs"
+
+[[bin]]
+name = "gen"
+path = "src/gen.rs"
