@@ -1,5 +1,8 @@
 # SAM reader benchmark
 
+The written-up results of the run below live in [`report.html`](report.html) — open it in a
+browser, it is self-contained.
+
 Head-to-head read throughput for bioreader's SAM reader against
 [noodles-sam](https://crates.io/crates/noodles-sam) and a naive `BufReader` + `split('\t')`
 baseline, plus a regression floor to run after touching the reader.
