@@ -46,6 +46,17 @@ impl SamReader {
 
     /// Single-threaded batch load, for readers that are not shared.
     #[inline]
+    /// Point the parser at a batch someone else filled.
+    ///
+    /// The prefetching reader hands a worker a whole buffer rather than filling the
+    /// worker's own, so the parser has to be told how much of it is live. Bytes past
+    /// `bytes` are stale and are never read, exactly as after `load_batch`.
+    #[inline]
+    pub fn set_batch(&mut self, bytes: usize) {
+        self.buffer_pos = 0;
+        self.buffer_fill = bytes;
+    }
+
     pub fn load_batch(&mut self, br: &mut impl FillBuffer) -> Result<Option<()>, std::io::Error> {
         self.buffer_pos = 0;
         match br.fill_buf(&mut self.buffer)? {
