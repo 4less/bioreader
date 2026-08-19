@@ -191,17 +191,36 @@ where
             let mut state = global_state.clone();
             let mut f_local = f.clone();
             threads.push(scope.spawn(move || {
+                let (mut waiting, mut working, mut batches) =
+                    (std::time::Duration::ZERO, std::time::Duration::ZERO, 0u64);
                 loop {
-                    match prefetcher.next_batch(&mut sam_reader.buffer) {
+                    let t0 = std::time::Instant::now();
+                    let got = prefetcher.next_batch(&mut sam_reader.buffer);
+                    waiting += t0.elapsed();
+                    match got {
                         Ok(Some(bytes)) => {
+                            let t1 = std::time::Instant::now();
                             sam_reader.set_batch(bytes);
                             while let Some(record) = sam_reader.next() {
                                 f_local(&record, &mut state);
                             }
+                            working += t1.elapsed();
+                            batches += 1;
                         }
                         Ok(None) => break,
                         Err(_) => break,
                     }
+                }
+                // BIOREADER_TRACE=1 splits each worker's life into waiting for a batch
+                // and working on one. It answers the question that guesswork kept getting
+                // wrong -- whether the consumers are slow or simply starved. On a gzipped
+                // SAM they report 0.72 s waiting against 0.12 s working, which says the
+                // decode is the wall and the workers have nothing to do.
+                if std::env::var("BIOREADER_TRACE").is_ok() {
+                    eprintln!(
+                        "[worker] {batches:5} batches  waiting {:6.2}s  working {:6.2}s",
+                        waiting.as_secs_f64(), working.as_secs_f64()
+                    );
                 }
                 state
             }));

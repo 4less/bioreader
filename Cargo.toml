@@ -26,3 +26,6 @@ rustflags = ["-C", "target-feature=+sse3,+avx,+avx2"]
 opt-level = 3               # Use best optimizations
 overflow-checks = false     # Disable integer overflow checks.
 rustflags = ["-C", "target-feature=+sse3,+avx,+avx2"]
+
+[dev-dependencies]
+rapidgzip-core = "0.3"
