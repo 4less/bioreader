@@ -18,22 +18,33 @@
 //! up front and recycled, and the producer must take an empty one before it can fill it.
 //! A slow consumer therefore blocks the producer instead of growing a queue.
 
+use std::collections::VecDeque;
 use std::io::{Error, Read};
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
+use std::sync::mpsc::{channel, Sender};
+use std::sync::{Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 
 use crate::sam_byte_reader::SamByteReader;
+use std::sync::Arc;
 use crate::sam_byte_reader::SamHeader;
 
 /// A filled batch travelling from the producer to a worker, or the error that ended it.
 type Delivery = Result<(Vec<u8>, usize), Error>;
 
 /// Reads and cuts SAM batches on its own thread so workers never block on IO.
+/// The filled queue, and whether the producer has finished with it.
+struct Queue {
+    ready: VecDeque<Delivery>,
+    done: bool,
+}
+
 pub struct BatchPrefetcher {
-    /// Behind a `Mutex` because `Receiver` is not `Sync`. The lock is held for a `recv`
-    /// and nothing else, so unlike the reader lock it does not span the read.
-    filled: Mutex<Receiver<Delivery>>,
+    /// A queue and a condvar rather than a channel receiver, because `Receiver` is not
+    /// `Sync` and wrapping one in a `Mutex` means a worker that finds the queue empty
+    /// blocks *inside* `recv` while still holding the lock -- so no other worker can even
+    /// look. `Condvar::wait` releases the mutex while it waits, which is the whole
+    /// difference: workers queue for a pointer, not for each other's idle time.
+    queue: Arc<(Mutex<Queue>, Condvar)>,
     empty: Sender<Vec<u8>>,
     header: SamHeader,
     producer: Mutex<Option<JoinHandle<()>>>,
@@ -50,16 +61,22 @@ impl BatchPrefetcher {
         depth: usize,
     ) -> Self {
         let header = reader.header().clone();
-        let (filled_tx, filled_rx) = channel::<Delivery>();
         let (empty_tx, empty_rx) = channel::<Vec<u8>>();
+        let queue = Arc::new((Mutex::new(Queue { ready: VecDeque::new(), done: false }), Condvar::new()));
+        let producer_queue = Arc::clone(&queue);
 
         for _ in 0..depth.max(1) {
             let _ = empty_tx.send(vec![0u8; buffer_size]);
         }
 
         let producer = thread::spawn(move || {
+            let (lock, cv) = &*producer_queue;
             // Ends when the empty queue is dropped (every worker gone) or the source is
-            // exhausted; dropping `filled_tx` on the way out is what tells workers so.
+            // exhausted; setting `done` and waking everyone is what tells workers so.
+            let finish = |lock: &Mutex<Queue>, cv: &Condvar| {
+                lock.lock().unwrap_or_else(|p| p.into_inner()).done = true;
+                cv.notify_all();
+            };
             while let Ok(buf) = empty_rx.recv() {
                 // Swapped, not copied: the worker takes the buffer the batch was read
                 // into and the reader takes this recycled one. Only the tail after the
@@ -67,21 +84,25 @@ impl BatchPrefetcher {
                 // parallel decoder rather than halving it.
                 match reader.take_batch(buf) {
                     Ok(Some((full, bytes))) => {
-                        if filled_tx.send(Ok((full, bytes))).is_err() {
-                            return;
-                        }
+                        lock.lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .ready
+                            .push_back(Ok((full, bytes)));
+                        cv.notify_one();
                     }
-                    Ok(None) => return,
+                    Ok(None) => return finish(lock, cv),
                     Err(e) => {
-                        let _ = filled_tx.send(Err(e));
-                        return;
+                        lock.lock().unwrap_or_else(|p| p.into_inner()).ready.push_back(Err(e));
+                        cv.notify_all();
+                        return finish(lock, cv);
                     }
                 }
             }
+            finish(lock, cv);
         });
 
         Self {
-            filled: Mutex::new(filled_rx),
+            queue,
             empty: empty_tx,
             header,
             producer: Mutex::new(Some(producer)),
@@ -97,18 +118,25 @@ impl BatchPrefetcher {
     /// `buf` is swapped with the delivered buffer rather than copied into, and the old one
     /// goes back to the producer to be refilled. `Ok(None)` means the source is done.
     pub fn next_batch(&self, buf: &mut Vec<u8>) -> Result<Option<usize>, Error> {
+        let (lock, cv) = &*self.queue;
         let msg = {
-            let rx = self
-                .filled
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            rx.recv()
+            let mut q = lock.lock().unwrap_or_else(|p| p.into_inner());
+            loop {
+                if let Some(m) = q.ready.pop_front() {
+                    break Some(m);
+                }
+                if q.done {
+                    break None;
+                }
+                // Releases the lock while waiting, so the other workers keep running.
+                q = cv.wait(q).unwrap_or_else(|p| p.into_inner());
+            }
         };
         match msg {
-            // The producer dropped its sender: the source ran out or it returned early.
-            Err(_) => Ok(None),
-            Ok(Err(e)) => Err(e),
-            Ok(Ok((batch, bytes))) => {
+            // The producer finished and the queue is drained.
+            None => Ok(None),
+            Some(Err(e)) => Err(e),
+            Some(Ok((batch, bytes))) => {
                 let spent = std::mem::replace(buf, batch);
                 // Failing to recycle is not an error: it only means the producer has
                 // already stopped, and the next `recv` will report that.
