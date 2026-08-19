@@ -23,7 +23,6 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread::{self, JoinHandle};
 
-use crate::fastq_byte_reader::FillBuffer;
 use crate::sam_byte_reader::SamByteReader;
 use crate::sam_byte_reader::SamHeader;
 
@@ -61,10 +60,14 @@ impl BatchPrefetcher {
         let producer = thread::spawn(move || {
             // Ends when the empty queue is dropped (every worker gone) or the source is
             // exhausted; dropping `filled_tx` on the way out is what tells workers so.
-            while let Ok(mut buf) = empty_rx.recv() {
-                match reader.fill_buf(&mut buf) {
-                    Ok(Some(bytes)) => {
-                        if filled_tx.send(Ok((buf, bytes))).is_err() {
+            while let Ok(buf) = empty_rx.recv() {
+                // Swapped, not copied: the worker takes the buffer the batch was read
+                // into and the reader takes this recycled one. Only the tail after the
+                // last newline moves, which is what makes the producer keep up with a
+                // parallel decoder rather than halving it.
+                match reader.take_batch(buf) {
+                    Ok(Some((full, bytes))) => {
+                        if filled_tx.send(Ok((full, bytes))).is_err() {
                             return;
                         }
                     }

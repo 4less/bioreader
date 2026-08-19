@@ -192,6 +192,53 @@ impl<T: Read> SamByteReader<T> {
         Ok(Some(bytes))
     }
 
+    /// Cut a batch and hand out the buffer it was cut from, taking `fresh` in exchange.
+    ///
+    /// [`cut_batch`](Self::cut_batch) copies the batch into the caller's buffer, so every
+    /// byte is touched twice on the reading thread: once by the source writing into the
+    /// internal buffer, once by the copy out of it. On a gzip source that ceiling is the
+    /// binding one — rapidgzip delivers about 2.4 GB/s on this machine while a copy plus
+    /// the newline scan manages about 1.1 GB/s, so the decoder spends half its time
+    /// waiting on the consumer.
+    ///
+    /// Here the buffers are swapped instead. The caller receives the whole buffer with
+    /// `bytes` of complete records in it, and what carries over is only the tail after the
+    /// last newline — less than one record, and the one thing that genuinely has to move.
+    ///
+    /// `fresh` is grown if it is smaller than the buffer being handed out, which keeps the
+    /// two in step after a long record has forced the internal buffer to grow.
+    pub fn take_batch(
+        &mut self,
+        mut fresh: Vec<u8>,
+    ) -> Result<Option<(Vec<u8>, usize)>, Error> {
+        self.fill_buffer()?;
+
+        if self.buffer_fill == 0 {
+            return Ok(None);
+        }
+
+        let bytes = loop {
+            match memrchr(b'\n', &self.buffer[..self.buffer_fill]) {
+                Some(pos) => break pos + 1,
+                None if self.finished => break self.buffer_fill,
+                None => {
+                    self.buffer.resize(self.buffer.len() * 2, 0);
+                    self.fill_buffer()?;
+                }
+            }
+        };
+
+        if fresh.len() < self.buffer.len() {
+            fresh.resize(self.buffer.len(), 0);
+        }
+        let remainder = self.buffer_fill - bytes;
+        fresh[..remainder].copy_from_slice(&self.buffer[bytes..self.buffer_fill]);
+
+        let full = std::mem::replace(&mut self.buffer, fresh);
+        self.buffer_fill = remainder;
+        Ok(Some((full, bytes)))
+    }
+
     /// Like [`fill_buf`](FillBuffer::fill_buf), but also returns the [`SamBatchBase`] — the byte
     /// offset and record ordinal of this batch's first record — and advances the cumulative
     /// counters. The base is captured *before* draining, and all counter updates happen here
