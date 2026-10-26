@@ -41,6 +41,8 @@ impl FastaReader {
         Ok(Some(()))
      }
 
+    /// The next record of the batch. Sequence bytes are uppercased (soft-masked lowercase bases
+    /// become ordinary bases); the header is kept as it is.
     pub fn next(&mut self, record: &mut OwnedFastaRecord) -> Option<()> {
         if self.buffer_pos >= self.buffer_fill {
             return None
@@ -70,7 +72,11 @@ impl FastaReader {
                 record.sequence.reserve(length);
             }
 
+            // Uppercase as the line is copied: soft-masked assemblies (NCBI, Ensembl, UCSC) mark
+            // repeats in lowercase, and consumers encode bases from uppercase only.
+            let start = record.sequence.len();
             record.sequence.extend_from_slice(&self.buffer[self.buffer_pos..self.buffer_pos+newline_pos]);
+            record.sequence[start..].make_ascii_uppercase();
 
             self.buffer_pos += newline_pos + 1;
         }
